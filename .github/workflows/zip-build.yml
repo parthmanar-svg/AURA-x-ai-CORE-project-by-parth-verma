@@ -81,12 +81,15 @@ jobs:
             gradle wrapper --gradle-version 8.7
           fi
 
+          chmod +x ./gradlew
+          ls -l ./gradlew
+
       - name: Build debug APK
         run: |
           set -euo pipefail
           project_dir="${project_dir:-.}"
           cd "$project_dir"
-          ./gradlew assembleDebug --no-daemon
+          bash ./gradlew assembleDebug --no-daemon
 
       - uses: actions/upload-artifact@v4
         with:
