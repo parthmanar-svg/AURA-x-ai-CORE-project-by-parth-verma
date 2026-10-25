@@ -1,32 +1,94 @@
 name: Build APK from zip
-on: workflow_dispatch
+on:
+  workflow_dispatch
+
 jobs:
   apk:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - uses: actions/checkout@v4
-      - name: Unzip the project
-        run: unzip -q core.zip
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: "17" }
-      - uses: gradle/actions/setup-gradle@v4
-        with: { gradle-version: "8.7" }
-      - name: Use modern Gradle files for CI only
-        working-directory: COREAndroid-AIDE
+
+      - name: Locate project
+        id: project
         run: |
-          cp tools/ci/settings.gradle settings.gradle
-          cp tools/ci/build.gradle build.gradle
-          cp tools/ci/app-build.gradle app/build.gradle
-          sed -i 's/ package="com.core.ai"//' app/src/main/AndroidManifest.xml
+          set -euo pipefail
+
+          if [ -f settings.gradle ] && [ -f gradlew ]; then
+            echo "project_dir=." >> "$GITHUB_ENV"
+            echo "Using repo root as project directory"
+            exit 0
+          fi
+
+          zip_file="${ZIP_FILE:-core-1.zip}"
+
+          if [ ! -f "$zip_file" ]; then
+            echo "Expected zip not found: $zip_file"
+            ls -la
+            exit 1
+          fi
+
+          unzip -q "$zip_file" -d .
+
+          project_dir="$(find . -maxdepth 3 -type d \( -name "COREAndroid-AIDE" -o -name "COREAndroid*" -o -name "app" \) | head -n 1)"
+          if [ -z "${project_dir:-}" ]; then
+            echo "No Android project directory found after unzip."
+            find . -maxdepth 3 -print | sort
+            exit 1
+          fi
+
+          echo "project_dir=$project_dir" >> "$GITHUB_ENV"
+          echo "Using project directory: $project_dir"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Prepare Android project for CI
+        run: |
+          set -euo pipefail
+
+          project_dir="${project_dir:-.}"
+          cd "$project_dir"
+
+          if [ -d tools/ci ]; then
+            cp tools/ci/settings.gradle settings.gradle 2>/dev/null || true
+            cp tools/ci/build.gradle build.gradle 2>/dev/null || true
+            cp tools/ci/app-build.gradle app/build.gradle 2>/dev/null || true
+          fi
+
+          if [ -f app/src/main/AndroidManifest.xml ]; then
+            sed -i 's/ package="com.core.ai"//' app/src/main/AndroidManifest.xml
+          fi
+
           echo "sdk.dir=$ANDROID_HOME" > local.properties
+
       - name: Create Gradle wrapper
-        working-directory: COREAndroid-AIDE
-        run: gradle wrapper --gradle-version 8.7
+        run: |
+          set -euo pipefail
+          project_dir="${project_dir:-.}"
+          cd "$project_dir"
+
+          if [ ! -f gradlew ]; then
+            gradle wrapper --gradle-version 8.7
+          fi
+
       - name: Build debug APK
-        working-directory: COREAndroid-AIDE
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          set -euo pipefail
+          project_dir="${project_dir:-.}"
+          cd "$project_dir"
+          ./gradlew assembleDebug --no-daemon
+
       - uses: actions/upload-artifact@v4
         with:
           name: CORE-debug-apk
-          path: COREAndroid-AIDE/app/build/outputs/apk/debug/app-debug.apk
-          
+          path: ${{ env.project_dir }}/app/build/outputs/apk/debug/app-debug.apk
