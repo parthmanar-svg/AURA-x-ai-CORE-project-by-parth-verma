@@ -1,0 +1,27 @@
+# Copy to .github/workflows/fetch-runtimes.yml in your GitHub repo, then Actions > Fetch runtimes > Run workflow.
+# Downloads the offline runtimes (ONNX Runtime Web, Transformers.js, MediaPipe GenAI) and zips them as vendor-runtimes.zip.
+# Written without being able to run it here; if a step fails, the log shows which one.
+name: Fetch runtimes
+on: workflow_dispatch
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Download packages
+        run: |
+          mkdir pack && cd pack
+          npm pack onnxruntime-web @huggingface/transformers @mediapipe/tasks-genai
+          for f in *.tgz; do d="${f%.tgz}"; mkdir "$d" && tar -xzf "$f" -C "$d"; done
+          ls -la
+      - name: Collect into vendor/
+        run: |
+          mkdir -p vendor/ort vendor/transformers vendor/mediapipe-genai
+          cp -r pack/onnxruntime-web-*/package/dist/. vendor/ort/
+          cp -r pack/huggingface-transformers-*/package/dist/. vendor/transformers/
+          cp -r pack/mediapipe-tasks-genai-*/package/. vendor/mediapipe-genai/
+          du -sh vendor/*
+          cd vendor && zip -qr ../vendor-runtimes.zip .
+      - uses: actions/upload-artifact@v4
+        with: { name: vendor-runtimes, path: vendor-runtimes.zip }

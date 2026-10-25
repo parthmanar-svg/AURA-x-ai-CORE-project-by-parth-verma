@@ -1,0 +1,15 @@
+name = "core-cloud"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+UPSTREAM_URL = "https://api.groq.com/openai/v1/chat/completions"
+MODEL = "llama-3.3-70b-versatile"
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "Hub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Hub"]

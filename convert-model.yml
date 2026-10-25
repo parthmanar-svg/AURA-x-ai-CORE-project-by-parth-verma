@@ -1,0 +1,53 @@
+# Copy to .github/workflows/convert-model.yml in your GitHub repo, then Actions > Convert model > Run workflow.
+# Written without being able to run it here; if a step fails, the log shows which one.
+name: Convert model
+on:
+  workflow_dispatch:
+    inputs:
+      repo:   { description: "Hugging Face repo (owner/name)", required: true }
+      target: { description: "gguf (LLMs) | onnx | tflite", default: "gguf" }
+      quant:  { description: "GGUF quant: Q4_K_M, Q5_K_M, Q8_0...", default: "Q4_K_M" }
+      hf_token: { description: "Only for gated repos", required: false, default: "" }
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android || true
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Download
+        env: { HF_TOKEN: "${{ inputs.hf_token }}" }
+        run: |
+          pip install -U "huggingface_hub[cli]"
+          huggingface-cli download "${{ inputs.repo }}" --local-dir model --local-dir-use-symlinks False
+      - name: GGUF (safetensors / pt / pth / GPTQ / AWQ)
+        if: inputs.target == 'gguf'
+        run: |
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp
+          pip install -r llama.cpp/requirements/requirements-convert_hf_to_gguf.txt
+          python llama.cpp/convert_hf_to_gguf.py model --outfile model-f16.gguf --outtype f16
+          cmake -S llama.cpp -B build -DGGML_NATIVE=OFF -DLLAMA_CURL=OFF
+          cmake --build build --target llama-quantize -j"$(nproc)"
+          mkdir out && build/bin/llama-quantize model-f16.gguf out/model-${{ inputs.quant }}.gguf ${{ inputs.quant }}
+      - name: ONNX (PyTorch / TF / Keras / sklearn pickle, run only inside this throwaway runner)
+        if: inputs.target == 'onnx'
+        run: |
+          pip install "optimum[exporters]" torch
+          mkdir out && optimum-cli export onnx --model model out/
+      - name: TFLite (SavedModel / Keras / H5)
+        if: inputs.target == 'tflite'
+        run: |
+          pip install tensorflow
+          mkdir out && python - <<'PY'
+          import glob, os, tensorflow as tf
+          src = next(iter(glob.glob("model/**/saved_model.pb", recursive=True)), None)
+          if src:
+              conv = tf.lite.TFLiteConverter.from_saved_model(os.path.dirname(src))
+          else:
+              k = (glob.glob("model/**/*.keras", recursive=True) + glob.glob("model/**/*.h5", recursive=True))[0]
+              conv = tf.lite.TFLiteConverter.from_keras_model(tf.keras.models.load_model(k))
+          conv.optimizations = [tf.lite.Optimize.DEFAULT]
+          open("out/model.tflite", "wb").write(conv.convert())
+          PY
+      - uses: actions/upload-artifact@v4
+        with: { name: converted, path: out/ }

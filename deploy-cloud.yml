@@ -1,0 +1,26 @@
+# Deploys cloud/ to Cloudflare Workers whenever it changes (or run it by hand).
+# Repo secrets needed: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, DEVICE_TOKEN, CONTROL_TOKEN, UPSTREAM_KEY
+name: Deploy cloud
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['cloud/**']
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cloud
+          secrets: |
+            DEVICE_TOKEN
+            CONTROL_TOKEN
+            UPSTREAM_KEY
+        env:
+          DEVICE_TOKEN: ${{ secrets.DEVICE_TOKEN }}
+          CONTROL_TOKEN: ${{ secrets.CONTROL_TOKEN }}
+          UPSTREAM_KEY: ${{ secrets.UPSTREAM_KEY }}
